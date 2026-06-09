@@ -1,170 +1,141 @@
-# Movie Night Agent - C# Manual Tool Calling Demo
+# Movie Night Agent - C# AI Agent Demo
 
-This project demonstrates a manual AI agent loop in C#.
+This repository demonstrates two versions of the same C# AI agent idea.
 
-The agent helps choose a movie or episode for movie night by using three mocked tools:
-
-1. `search_library` - searches a mocked personal media library.
-2. `get_title_details` - gets details for a selected title.
-3. `add_to_watchlist` - simulates adding a title to a watchlist.
-
-Task 1: Manual loop using direct HTTP and Anthropic Messages API.
-Task 2: Bonus version using Microsoft Agent Framework with OpenAI provider.
-
-## Features
-
-- C# .NET console application
-- Manual model/tool loop using HTTP requests
-- Three mocked C# tools
-- Logs every model/tool cycle
-- Sends tool results back to the model manually
-- Final answer is valid JSON
-- Final JSON is parsed into a strongly typed C# model
-
-## Setup
-
-Create a local `.env` file in the project root:
-
-```env
-ANTHROPIC_API_KEY=your-api-key-here
-```
+The agent helps choose a movie-night episode by using mocked C# tools.
 
 ## Branches
 
-This repository uses two branches:
+| Branch      | Description                                                                |
+| ----------- | -------------------------------------------------------------------------- |
+| `main`      | Task 1: manual C# agent loop.                                              |
+| `task2-maf` | Task 2 bonus: Microsoft Agent Framework version with a local Ollama model. |
 
-| Branch | Description |
-|---|---|
-| `main` | Task 1 implementation: manual C# agent loop with mocked tools and structured final response. |
-| `task2-maf` | Task 2 / bonus implementation: Microsoft Agent Framework version using a local Ollama model and registered C# tools. |
+The same README is used to describe both branches.
 
-The `main` branch contains the required manual implementation.
+## Project Idea
 
-The `task2-maf` branch contains the bonus/framework implementation in addition to the Task 1 work.
+The agent receives this type of request:
 
-## Architecture
+```text
+Find me a funny episode under 30 minutes for tonight.
+Check that the best choice has English subtitles and HD quality.
+Then add it to my Tonight watchlist.
+```
 
-This repository contains two implementations of the same “Movie Night Agent” idea.
+The project uses three mocked tools:
 
-The goal is to demonstrate how an AI agent can reason over a user request, use tools, and return a final answer based on real tool results.
+| Tool                | Purpose                                  |
+| ------------------- | ---------------------------------------- |
+| `search_library`    | Searches a mocked media library.         |
+| `get_title_details` | Gets full details for a selected title.  |
+| `add_to_watchlist`  | Simulates adding a title to a watchlist. |
 
 ---
 
-## Task 1 Architecture — Manual Agent Loop
+# Task 1 - Manual Agent Loop
 
-Task 1 implements the agent loop manually in C#.
+Task 1 is implemented on the `main` branch.
 
-### Main flow
+It manually implements the model/tool loop in C#.
+
+## Task 1 Architecture
 
 ```text
 User request
     ↓
-Manual C# agent loop
+Program.cs manual loop
     ↓
-LLM response
+Send request to model
     ↓
-Tool request detected
+Model requests a tool
     ↓
-C# executes matching tool
+C# executes the tool
     ↓
 Tool result is sent back to the model
     ↓
-Repeat until final response
+Repeat until final answer
     ↓
-Strongly typed final response
+Parse final JSON into strongly typed C# model
 ```
 
-### Main components
+## Task 1 Main Files
 
 ```text
 Program.cs
-    - Sends requests to the model
-    - Reads model responses
-    - Detects tool calls
-    - Executes tools manually
-    - Sends tool results back to the model
-    - Parses the final JSON answer
+    Manual agent loop.
+    Sends HTTP requests to the model.
+    Detects tool calls.
+    Executes the correct C# tool.
+    Sends tool results back to the model.
+    Parses the final JSON response.
 
 Tools/MovieNightTools.cs
+    Mocked C# tools:
     - search_library
     - get_title_details
     - add_to_watchlist
 
 Models/MovieNightFinalResponse.cs
-    - Strongly typed final response model
+    Strongly typed model for the final response.
 ```
 
-### Tools
+## Task 1 Features
 
-The manual loop exposes three mocked tools:
+* Manual model/tool loop.
+* Direct HTTP API call.
+* Three mocked C# tools.
+* Console logging for every model/tool cycle.
+* Final answer returned as JSON.
+* Final JSON parsed into a strongly typed C# object.
 
-```text
-search_library
-    Searches the mocked media library by genre, mood, runtime, and type.
+## Task 1 Setup
 
-get_title_details
-    Gets full information for a selected media title.
+Create a `.env` file in the project root:
 
-add_to_watchlist
-    Simulates adding the selected title to a watchlist.
+```env
+ANTHROPIC_API_KEY=your-api-key-here
 ```
 
-### Why this approach matters
+Run:
 
-In Task 1, the tool loop is implemented directly in C# instead of relying on an agent framework. This shows the internal mechanics of an agent:
-
-```text
-model decides → C# executes → result returns to model → model continues
+```bash
+dotnet run
 ```
-
-The console logs show each model/tool cycle clearly.
 
 ---
 
-## Task 2 Architecture — Microsoft Agent Framework + Local Ollama Model
+# Task 2 - Microsoft Agent Framework Bonus
 
-Task 2 implements the agent using Microsoft Agent Framework.
+Task 2 is implemented on the `task2-maf` branch.
 
-Instead of manually managing every model/tool cycle, the project uses `ChatClientAgent` from `Microsoft.Agents.AI`.
+It uses Microsoft Agent Framework with a local Ollama model.
 
-### Main flow
+No cloud API key is required for Task 2.
+
+## Task 2 Architecture
 
 ```text
 User request
     ↓
 ChatClientAgent
     ↓
+Microsoft.Extensions.AI function invocation
+    ↓
 OllamaSharp IChatClient
     ↓
 Local Ollama model: qwen2.5:7b
     ↓
-Agent calls registered C# tools
+Registered C# tools are called
     ↓
 Tool results return to the agent
     ↓
 Final agent response
 ```
 
-### Main components
+## Where Microsoft Agent Framework Is Used
 
-```text
-Task2-MAF/Program.cs
-    - Creates the local Ollama chat client
-    - Wraps it with Microsoft.Extensions.AI function invocation
-    - Creates the Microsoft Agent Framework ChatClientAgent
-    - Registers C# methods as AITool tools
-    - Runs the agent
-
-Task2-MAF/Tools/MovieNightTools.cs
-    - Contains the same mocked movie library logic
-
-Task2-MAF/Models/MovieNightFinalResponse.cs
-    - Defines the final response shape
-```
-
-### Framework usage
-
-Task 2 uses Microsoft Agent Framework here:
+Task 2 uses Microsoft Agent Framework through:
 
 ```csharp
 using Microsoft.Agents.AI;
@@ -176,10 +147,10 @@ The main framework class is:
 ChatClientAgent agent = new(...);
 ```
 
-The C# methods are exposed to the agent as tools using:
+The tools are registered as `AITool` instances:
 
 ```csharp
-AIFunctionFactory.Create(...)
+AITool tool = AIFunctionFactory.Create(...);
 ```
 
 The agent is executed with:
@@ -188,41 +159,58 @@ The agent is executed with:
 AgentResponse response = await agent.RunAsync(...);
 ```
 
-### Task 2 architecture diagram
+## Task 2 Main Files
 
 ```text
-C# methods
-    ↓
-AIFunctionFactory.Create(...)
-    ↓
-AITool[]
-    ↓
-ChatClientAgent
-    ↓
-OllamaSharp IChatClient
-    ↓
-qwen2.5:7b local model
+Task2-MAF/Program.cs
+    Creates the Ollama chat client.
+    Wraps it with function invocation.
+    Creates the ChatClientAgent.
+    Registers C# methods as tools.
+    Runs the agent.
+
+Task2-MAF/Tools/MovieNightTools.cs
+    Mocked movie library logic.
+
+Task2-MAF/Models/MovieNightFinalResponse.cs
+    Final response model.
 ```
 
-### Tools registered in MAF
+## Task 2 Registered Tools
+
+| Tool                    | Purpose                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------ |
+| `search_funny_episodes` | AI-facing wrapper that searches funny comedy episodes under a maximum runtime. |
+| `get_title_details`     | Gets full details for a selected title id.                                     |
+| `add_to_watchlist`      | Adds the selected title to the Tonight watchlist.                              |
+
+## Task 2 Local Model
+
+Task 2 uses Ollama locally.
+
+The model used:
 
 ```text
-search_funny_episodes
-    AI-facing wrapper tool.
-    It searches for funny comedy episodes under a maximum runtime.
-
-get_title_details
-    Gets full title details by id.
-
-add_to_watchlist
-    Adds the selected title to the Tonight watchlist.
+qwen2.5:7b
 ```
 
-### Why qwen2.5:7b was used
+Install/pull it with:
 
-The first local model tested was `llama3.2:3b`. It could call one tool, but it was not reliable enough for multi-step tool calling and sometimes invented titles.
+```bash
+ollama pull qwen2.5:7b
+```
 
-The project was switched to `qwen2.5:7b`, which handled the full tool sequence correctly:
+The C# project connects to Ollama at:
+
+```text
+http://localhost:11434
+```
+
+## Why qwen2.5:7b
+
+A smaller model, `llama3.2:3b`, was tested first. It could call one tool, but it was not reliable enough for the full multi-step tool sequence.
+
+`qwen2.5:7b` handled the full sequence correctly:
 
 ```text
 search_funny_episodes
@@ -234,50 +222,16 @@ add_to_watchlist
 final answer
 ```
 
-### Local model setup
+## Task 2 Run
 
-Task 2 uses Ollama locally:
+From the Task 2 folder:
 
 ```bash
-ollama pull qwen2.5:7b
+cd Task2-MAF
+dotnet run
 ```
 
-The C# project connects to Ollama through:
-
-```text
-http://localhost:11434
-```
-
-No cloud API key is required for Task 2.
-
----
-
-## Comparison
-
-| Part             | Task 1                          | Task 2                              |
-| ---------------- | ------------------------------- | ----------------------------------- |
-| Agent style      | Manual loop                     | Microsoft Agent Framework           |
-| Model provider   | External LLM API                | Local Ollama model                  |
-| Tool handling    | Manually parsed and executed    | Registered as `AITool`s             |
-| Main agent class | Custom C# loop                  | `ChatClientAgent`                   |
-| Final response   | Strongly typed JSON model       | Agent text response                 |
-| Purpose          | Show how agents work internally | Show framework-based implementation |
-
----
-
-## Demo Notes
-
-For Task 1, show the manual loop logs:
-
-```text
-Model cycle
-Tool requested
-Tool executed
-Tool result returned
-Final structured response
-```
-
-For Task 2, show the Microsoft Agent Framework tool calls:
+Expected console logs include:
 
 ```text
 [MAF TOOL EXECUTED] search_funny_episodes(30)
@@ -285,4 +239,41 @@ For Task 2, show the Microsoft Agent Framework tool calls:
 [MAF TOOL EXECUTED] add_to_watchlist(office-stress-relief, Tonight)
 ```
 
-This proves that the MAF agent successfully used the registered C# tools with a local model.
+---
+
+# Comparison
+
+| Part             | Task 1                                  | Task 2                                    |
+| ---------------- | --------------------------------------- | ----------------------------------------- |
+| Branch           | `main`                                  | `task2-maf`                               |
+| Agent style      | Manual loop                             | Microsoft Agent Framework                 |
+| Model connection | Direct HTTP API                         | OllamaSharp `IChatClient`                 |
+| Model            | External LLM                            | Local Ollama model                        |
+| Tool handling    | Manually parsed and executed            | Registered as `AITool`s                   |
+| Main agent logic | Custom C# loop                          | `ChatClientAgent`                         |
+| Final response   | Strongly typed JSON object              | Agent response text                       |
+| Purpose          | Show how an agent loop works internally | Show framework-based agent implementation |
+
+---
+
+# Demo Notes
+
+For Task 1, show the manual cycle:
+
+```text
+Model request
+Tool call detected
+C# tool executed
+Tool result returned
+Final JSON parsed
+```
+
+For Task 2, show the MAF tool calls:
+
+```text
+[MAF TOOL EXECUTED] search_funny_episodes(30)
+[MAF TOOL EXECUTED] get_title_details(office-stress-relief)
+[MAF TOOL EXECUTED] add_to_watchlist(office-stress-relief, Tonight)
+```
+
+This demonstrates that the Microsoft Agent Framework agent can use registered C# tools with a local Ollama model.
