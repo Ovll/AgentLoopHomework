@@ -1,7 +1,8 @@
-﻿using Microsoft.Extensions.AI;
+using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
 using OllamaSharp;
 
-Console.WriteLine("Task 2 - Local model test with Ollama");
+Console.WriteLine("Task 2 - Microsoft Agent Framework with local Ollama");
 Console.WriteLine();
 
 IChatClient chatClient = new OllamaApiClient(
@@ -9,9 +10,22 @@ IChatClient chatClient = new OllamaApiClient(
     defaultModel: "llama3.2:3b"
 );
 
-ChatResponse response = await chatClient.GetResponseAsync(
-    "Reply with exactly: C# local agent connection works."
+ChatClientAgent agent = new(
+    chatClient,
+    "MovieNightAgent",
+    "A local movie night assistant.",
+    """
+    You are a helpful movie night assistant.
+    Keep answers short and practical.
+    """,
+    [],
+    null,
+    null
 );
 
-Console.WriteLine("[LOCAL MODEL]");
+AgentResponse response = await agent.RunAsync(
+    "Reply with exactly: MAF local agent works."
+);
+
+Console.WriteLine("[AGENT RESPONSE]");
 Console.WriteLine(response.Text);
