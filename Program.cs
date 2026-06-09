@@ -149,7 +149,6 @@ while (cycle < 10)
         }
     }
 
-    // Important:
     // We manually add Claude's assistant message into conversation history.
     messages.Add(
         new Dictionary<string, object?> { ["role"] = "assistant", ["content"] = responseContent }
@@ -160,7 +159,6 @@ while (cycle < 10)
         break;
     }
 
-    // Important:
     // We manually add the tool result as the next user message.
     messages.Add(
         new Dictionary<string, object?> { ["role"] = "user", ["content"] = toolResultBlocks }
