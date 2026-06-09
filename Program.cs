@@ -1,9 +1,8 @@
-﻿using System.Text.Json;
+﻿using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using AgentLoopHomework.Models;
 using AgentLoopHomework.Tools;
-using Anthropic;
-using Anthropic.Helpers.Beta;
-using Anthropic.Models.Beta.Messages;
 using DotNetEnv;
 
 Env.Load();
@@ -16,79 +15,156 @@ if (string.IsNullOrWhiteSpace(apiKey))
     return;
 }
 
-AnthropicClient client = new() { ApiKey = apiKey };
+using HttpClient httpClient = new() { Timeout = TimeSpan.FromSeconds(60) };
 
-List<BetaRunnableTool> tools =
-[
-    CreateSearchLibraryTool(),
-    CreateGetTitleDetailsTool(),
-    CreateAddToWatchlistTool(),
-];
-
-var runner = client.Beta.Messages.ToolRunner(
-    new MessageCreateParams
-    {
-        Model = "claude-haiku-4-5-20251001",
-        MaxTokens = 1024,
-        Messages =
-        [
-            new()
-            {
-                Role = Role.User,
-                Content = """
-                Find me a funny episode under 30 minutes for tonight.
-                Check that the best choice has English subtitles and HD quality.
-                Then add it to my Tonight watchlist.
-
-                Final answer must be ONLY valid JSON with exactly these fields:
-                {
-                  "request": "...",
-                  "selectedTitle": "...",
-                  "reason": "...",
-                  "watchlistName": "...",
-                  "addedToWatchlist": true,
-                  "toolsUsed": ["search_library", "get_title_details", "add_to_watchlist"]
-                }
-
-                Do not include markdown in the final answer.
-                You must use the available tools.
-                """,
-            },
-        ],
-    },
-    tools
+httpClient.DefaultRequestHeaders.Add("x-api-key", apiKey);
+httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+httpClient.DefaultRequestHeaders.Accept.Add(
+    new MediaTypeWithQualityHeaderValue("application/json")
 );
+
+List<Dictionary<string, object?>> messages =
+[
+    new()
+    {
+        ["role"] = "user",
+        ["content"] = """
+            Find me a funny episode under 30 minutes for tonight.
+            Check that the best choice has English subtitles and HD quality.
+            Then add it to my Tonight watchlist.
+
+            Final answer must be ONLY valid JSON with exactly these fields:
+            {
+              "request": "...",
+              "selectedTitle": "...",
+              "reason": "...",
+              "watchlistName": "...",
+              "addedToWatchlist": true,
+              "toolsUsed": ["search_library", "get_title_details", "add_to_watchlist"]
+            }
+
+            Do not include markdown in the final answer.
+            You must use the available tools.
+            """,
+    },
+];
 
 int cycle = 0;
 string finalText = "";
 
-await foreach (var message in runner)
+while (cycle < 10)
 {
     cycle++;
 
-    Console.WriteLine();
-    Console.WriteLine($"========== MANUAL LOG CYCLE {cycle} ==========");
-    Console.WriteLine($"Stop reason: {message.StopReason}");
-    Console.WriteLine();
-
-    foreach (var block in message.Content)
+    var requestBody = new
     {
-        if (block.TryPickText(out var text))
+        model = "claude-haiku-4-5-20251001",
+        max_tokens = 1024,
+        tools = CreateToolDefinitions(),
+        messages = messages,
+    };
+
+    string requestJson = JsonSerializer.Serialize(requestBody);
+
+    using StringContent content = new(requestJson, Encoding.UTF8, "application/json");
+
+    Console.WriteLine();
+    Console.WriteLine($"[HTTP] Sending request to Claude, cycle {cycle}...");
+
+    using HttpResponseMessage httpResponse = await httpClient.PostAsync(
+        "https://api.anthropic.com/v1/messages",
+        content
+    );
+
+    Console.WriteLine($"[HTTP] Response received, status: {(int)httpResponse.StatusCode}");
+
+    string responseJson = await httpResponse.Content.ReadAsStringAsync();
+
+    if (!httpResponse.IsSuccessStatusCode)
+    {
+        Console.WriteLine("API request failed:");
+        Console.WriteLine(responseJson);
+        return;
+    }
+
+    using JsonDocument document = JsonDocument.Parse(responseJson);
+    JsonElement root = document.RootElement;
+
+    string stopReason = root.GetProperty("stop_reason").GetString() ?? "";
+
+    Console.WriteLine();
+    Console.WriteLine($"========== MANUAL MODEL / TOOL CYCLE {cycle} ==========");
+    Console.WriteLine($"Stop reason: {stopReason}");
+    Console.WriteLine();
+
+    JsonElement responseContent = root.GetProperty("content").Clone();
+
+    List<object> toolResultBlocks = [];
+    bool toolWasRequested = false;
+
+    foreach (JsonElement block in responseContent.EnumerateArray())
+    {
+        string type = block.GetProperty("type").GetString() ?? "";
+
+        if (type == "text")
         {
+            string text = block.GetProperty("text").GetString() ?? "";
+
             Console.WriteLine("[MODEL TEXT]");
-            Console.WriteLine(text.Text);
+            Console.WriteLine(text);
             Console.WriteLine();
 
-            finalText = text.Text;
+            if (stopReason == "end_turn")
+            {
+                finalText += text;
+            }
         }
-        else if (block.TryPickToolUse(out var toolUse))
+        else if (type == "tool_use")
         {
+            toolWasRequested = true;
+
+            string toolUseId = block.GetProperty("id").GetString() ?? "";
+            string toolName = block.GetProperty("name").GetString() ?? "";
+            JsonElement input = block.GetProperty("input");
+
             Console.WriteLine("[MODEL REQUESTED TOOL]");
-            Console.WriteLine($"Tool: {toolUse.Name}");
-            Console.WriteLine($"Input: {JsonSerializer.Serialize(toolUse.Input)}");
+            Console.WriteLine($"Tool: {toolName}");
+            Console.WriteLine($"Input: {input}");
             Console.WriteLine();
+
+            string toolResult = ExecuteTool(toolName, input);
+
+            Console.WriteLine("[C# TOOL RESULT]");
+            Console.WriteLine(toolResult);
+            Console.WriteLine();
+
+            toolResultBlocks.Add(
+                new Dictionary<string, object?>
+                {
+                    ["type"] = "tool_result",
+                    ["tool_use_id"] = toolUseId,
+                    ["content"] = toolResult,
+                }
+            );
         }
     }
+
+    // Important:
+    // We manually add Claude's assistant message into conversation history.
+    messages.Add(
+        new Dictionary<string, object?> { ["role"] = "assistant", ["content"] = responseContent }
+    );
+
+    if (!toolWasRequested || stopReason == "end_turn")
+    {
+        break;
+    }
+
+    // Important:
+    // We manually add the tool result as the next user message.
+    messages.Add(
+        new Dictionary<string, object?> { ["role"] = "user", ["content"] = toolResultBlocks }
+    );
 }
 
 Console.WriteLine();
@@ -123,154 +199,103 @@ catch (Exception ex)
     Console.WriteLine(finalText);
 }
 
-static BetaRunnableTool CreateSearchLibraryTool()
+static object[] CreateToolDefinitions()
 {
-    return new BetaRunnableTool
-    {
-        Name = "search_library",
-        Definition = new BetaTool
+    return
+    [
+        new
         {
-            Name = "search_library",
-            Description =
-                "Searches a mocked personal media library by genre, mood, maximum runtime, and media type.",
-            InputSchema = new InputSchema
+            name = "search_library",
+            description = "Searches a mocked personal media library by genre, mood, maximum runtime, and media type.",
+            input_schema = new
             {
-                Properties = new Dictionary<string, JsonElement>
+                type = "object",
+                properties = new
                 {
-                    ["genre"] = JsonSerializer.SerializeToElement(
-                        new
-                        {
-                            type = "string",
-                            description = "Genre to search for, for example Comedy.",
-                        }
-                    ),
-                    ["mood"] = JsonSerializer.SerializeToElement(
-                        new
-                        {
-                            type = "string",
-                            description = "Mood to search for, for example Funny.",
-                        }
-                    ),
-                    ["maxRuntimeMinutes"] = JsonSerializer.SerializeToElement(
-                        new
-                        {
-                            type = "integer",
-                            description = "Maximum allowed runtime in minutes.",
-                        }
-                    ),
-                    ["type"] = JsonSerializer.SerializeToElement(
-                        new
-                        {
-                            type = "string",
-                            description = "Media type, for example Episode or Movie.",
-                        }
-                    ),
+                    genre = new
+                    {
+                        type = "string",
+                        description = "Genre to search for, for example Comedy.",
+                    },
+                    mood = new
+                    {
+                        type = "string",
+                        description = "Mood to search for, for example Funny.",
+                    },
+                    maxRuntimeMinutes = new
+                    {
+                        type = "integer",
+                        description = "Maximum allowed runtime in minutes.",
+                    },
+                    type = new
+                    {
+                        type = "string",
+                        description = "Media type, for example Episode or Movie.",
+                    },
                 },
-                Required = ["genre", "mood", "maxRuntimeMinutes", "type"],
+                required = new[] { "genre", "mood", "maxRuntimeMinutes", "type" },
             },
         },
-        Run = (toolUse, _) =>
+        new
         {
-            string genre = toolUse.Input.TryGetValue("genre", out var g) ? g.GetString() ?? "" : "";
-            string mood = toolUse.Input.TryGetValue("mood", out var m) ? m.GetString() ?? "" : "";
-            int maxRuntimeMinutes = toolUse.Input.TryGetValue("maxRuntimeMinutes", out var r)
-                ? r.GetInt32()
-                : 30;
-            string type = toolUse.Input.TryGetValue("type", out var t) ? t.GetString() ?? "" : "";
-
-            Console.WriteLine(
-                $"[C# TOOL EXECUTED] search_library(genre={genre}, mood={mood}, maxRuntimeMinutes={maxRuntimeMinutes}, type={type})"
-            );
-
-            string result = MovieNightTools.SearchLibrary(genre, mood, maxRuntimeMinutes, type);
-
-            return Task.FromResult<BetaToolResultBlockParamContent>(result);
+            name = "get_title_details",
+            description = "Gets full details for one media title using its id.",
+            input_schema = new
+            {
+                type = "object",
+                properties = new
+                {
+                    titleId = new
+                    {
+                        type = "string",
+                        description = "The id of the title, for example office-stress-relief.",
+                    },
+                },
+                required = new[] { "titleId" },
+            },
         },
-    };
+        new
+        {
+            name = "add_to_watchlist",
+            description = "Adds a media title to a mocked watchlist.",
+            input_schema = new
+            {
+                type = "object",
+                properties = new
+                {
+                    titleId = new { type = "string", description = "The id of the title to add." },
+                    watchlistName = new
+                    {
+                        type = "string",
+                        description = "The watchlist name, for example Tonight.",
+                    },
+                },
+                required = new[] { "titleId", "watchlistName" },
+            },
+        },
+    ];
 }
 
-static BetaRunnableTool CreateGetTitleDetailsTool()
+static string ExecuteTool(string toolName, JsonElement input)
 {
-    return new BetaRunnableTool
+    return toolName switch
     {
-        Name = "get_title_details",
-        Definition = new BetaTool
-        {
-            Name = "get_title_details",
-            Description = "Gets full details for one media title using its id.",
-            InputSchema = new InputSchema
-            {
-                Properties = new Dictionary<string, JsonElement>
-                {
-                    ["titleId"] = JsonSerializer.SerializeToElement(
-                        new
-                        {
-                            type = "string",
-                            description = "The id of the title, for example office-stress-relief.",
-                        }
-                    ),
-                },
-                Required = ["titleId"],
-            },
-        },
-        Run = (toolUse, _) =>
-        {
-            string titleId = toolUse.Input.TryGetValue("titleId", out var id)
-                ? id.GetString() ?? ""
-                : "";
+        "search_library" => MovieNightTools.SearchLibrary(
+            genre: input.GetProperty("genre").GetString() ?? "",
+            mood: input.GetProperty("mood").GetString() ?? "",
+            maxRuntimeMinutes: input.GetProperty("maxRuntimeMinutes").GetInt32(),
+            type: input.GetProperty("type").GetString() ?? ""
+        ),
 
-            Console.WriteLine($"[C# TOOL EXECUTED] get_title_details(titleId={titleId})");
+        "get_title_details" => MovieNightTools.GetTitleDetails(
+            titleId: input.GetProperty("titleId").GetString() ?? ""
+        ),
 
-            string result = MovieNightTools.GetTitleDetails(titleId);
+        "add_to_watchlist" => MovieNightTools.AddToWatchlist(
+            titleId: input.GetProperty("titleId").GetString() ?? "",
+            watchlistName: input.GetProperty("watchlistName").GetString() ?? ""
+        ),
 
-            return Task.FromResult<BetaToolResultBlockParamContent>(result);
-        },
-    };
-}
-
-static BetaRunnableTool CreateAddToWatchlistTool()
-{
-    return new BetaRunnableTool
-    {
-        Name = "add_to_watchlist",
-        Definition = new BetaTool
-        {
-            Name = "add_to_watchlist",
-            Description = "Adds a media title to a mocked watchlist.",
-            InputSchema = new InputSchema
-            {
-                Properties = new Dictionary<string, JsonElement>
-                {
-                    ["titleId"] = JsonSerializer.SerializeToElement(
-                        new { type = "string", description = "The id of the title to add." }
-                    ),
-                    ["watchlistName"] = JsonSerializer.SerializeToElement(
-                        new
-                        {
-                            type = "string",
-                            description = "The watchlist name, for example Tonight.",
-                        }
-                    ),
-                },
-                Required = ["titleId", "watchlistName"],
-            },
-        },
-        Run = (toolUse, _) =>
-        {
-            string titleId = toolUse.Input.TryGetValue("titleId", out var id)
-                ? id.GetString() ?? ""
-                : "";
-            string watchlistName = toolUse.Input.TryGetValue("watchlistName", out var w)
-                ? w.GetString() ?? ""
-                : "";
-
-            Console.WriteLine(
-                $"[C# TOOL EXECUTED] add_to_watchlist(titleId={titleId}, watchlistName={watchlistName})"
-            );
-
-            string result = MovieNightTools.AddToWatchlist(titleId, watchlistName);
-
-            return Task.FromResult<BetaToolResultBlockParamContent>(result);
-        },
+        _ => JsonSerializer.Serialize(new { Error = $"Unknown tool: {toolName}" }),
     };
 }
