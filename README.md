@@ -29,6 +29,19 @@ Create a local `.env` file in the project root:
 ANTHROPIC_API_KEY=your-api-key-here
 ```
 
+## Branches
+
+This repository uses two branches:
+
+| Branch | Description |
+|---|---|
+| `main` | Task 1 implementation: manual C# agent loop with mocked tools and structured final response. |
+| `task2-maf` | Task 2 / bonus implementation: Microsoft Agent Framework version using a local Ollama model and registered C# tools. |
+
+The `main` branch contains the required manual implementation.
+
+The `task2-maf` branch contains the bonus/framework implementation in addition to the Task 1 work.
+
 ## Architecture
 
 This repository contains two implementations of the same “Movie Night Agent” idea.
