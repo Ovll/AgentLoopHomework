@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using OllamaSharp;
+using Task2_MAF.Models;
 using Task2_MAF.Tools;
 
 Console.WriteLine("Task 2 - Microsoft Agent Framework with local Ollama and Movie Night tools");
@@ -32,11 +33,9 @@ AITool addToWatchlistTool = AIFunctionFactory.Create(
     description: "Adds a media title to a mocked watchlist. Use this only after checking title details."
 );
 
-ChatClientAgent agent = new(
-    chatClient,
-    "MovieNightAgent",
-    "A local movie night assistant with movie-library tools.",
-    """
+// System prompt: sent to the model as a system-role message before the conversation starts.
+// This is where you define the agent's persona, constraints, and required workflow.
+string systemPrompt = """
     You are a movie night agent.
 
     You must use tools. Do not invent titles.
@@ -50,17 +49,21 @@ ChatClientAgent agent = new(
     6. If the checks pass, call add_to_watchlist with:
        - the same title id
        - watchlistName = "Tonight"
-    7. Final answer must mention only the title returned by the tools.
-    8. Do not say the title was added unless add_to_watchlist was actually called.
+    7. Do not say the title was added unless add_to_watchlist was actually called.
+    """;
 
-    Keep the final answer short.
-    """,
+ChatClientAgent agent = new(
+    chatClient,
+    "MovieNightAgent",
+    "A local movie night assistant with movie-library tools.",
+    systemPrompt,
     [searchFunnyEpisodesTool, getTitleDetailsTool, addToWatchlistTool],
     null,
     null
 );
 
-AgentResponse response = await agent.RunAsync(
+// Step 1: run the agent — tools fire here, MAF handles the loop automatically.
+AgentResponse agentResponse = await agent.RunAsync(
     """
     Find me a funny episode under 30 minutes for tonight.
     Check that the best choice has English subtitles and HD quality.
@@ -69,8 +72,41 @@ AgentResponse response = await agent.RunAsync(
 );
 
 Console.WriteLine();
-Console.WriteLine("[AGENT RESPONSE]");
-Console.WriteLine(response.Text);
+Console.WriteLine("[AGENT SUMMARY]");
+Console.WriteLine(agentResponse.Text);
+
+// Step 2: structured output — ask the base client to reformat the agent's summary
+// as a typed object. GetResponseAsync<T> sets the JSON schema on the request so the
+// model is constrained to produce a valid MovieNightFinalResponse without manual parsing.
+Console.WriteLine();
+Console.WriteLine("========== STRONGLY TYPED FINAL RESPONSE ==========");
+
+List<ChatMessage> formatMessages =
+[
+    new(ChatRole.System, "Convert the agent summary into the requested JSON schema. Output only valid JSON, no markdown."),
+    new(ChatRole.User, agentResponse.Text),
+];
+
+// useJsonSchemaResponseFormat: false — qwen2.5 via Ollama does not support schema-constrained
+// output, so we rely on prompt guidance instead of a native schema constraint.
+ChatResponse<MovieNightFinalResponse> typed = await baseChatClient.GetResponseAsync<MovieNightFinalResponse>(
+    formatMessages,
+    useJsonSchemaResponseFormat: false
+);
+
+if (typed.Result is null)
+{
+    Console.WriteLine("Could not deserialize typed response.");
+}
+else
+{
+    Console.WriteLine($"Request:        {typed.Result.Request}");
+    Console.WriteLine($"Selected title: {typed.Result.SelectedTitle}");
+    Console.WriteLine($"Reason:         {typed.Result.Reason}");
+    Console.WriteLine($"Watchlist:      {typed.Result.WatchlistName}");
+    Console.WriteLine($"Added:          {typed.Result.AddedToWatchlist}");
+    Console.WriteLine($"Tools used:     {string.Join(", ", typed.Result.ToolsUsed)}");
+}
 
 static string SearchFunnyEpisodes(
     [Description("Maximum allowed runtime in minutes.")] int maxRuntimeMinutes
