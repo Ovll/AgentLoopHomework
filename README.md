@@ -118,19 +118,21 @@ No cloud API key is required for Task 2.
 ```text
 User request
     ↓
-ChatClientAgent
+ChatClientAgent (system prompt sets persona and workflow)
     ↓
-Microsoft.Extensions.AI function invocation
+Microsoft.Extensions.AI function invocation middleware
     ↓
-OllamaSharp IChatClient
+OllamaSharp IChatClient → Local Ollama model: qwen2.5:7b
     ↓
-Local Ollama model: qwen2.5:7b
-    ↓
-Registered C# tools are called
+Registered C# tools are called automatically
     ↓
 Tool results return to the agent
     ↓
-Final agent response
+Agent summary (prose)
+    ↓
+GetResponseAsync<MovieNightFinalResponse>  ← structured output step
+    ↓
+Strongly typed C# object
 ```
 
 ## Where Microsoft Agent Framework Is Used
@@ -153,11 +155,20 @@ The tools are registered as `AITool` instances:
 AITool tool = AIFunctionFactory.Create(...);
 ```
 
-The agent is executed with:
+The agent is executed in two steps:
 
 ```csharp
-AgentResponse response = await agent.RunAsync(...);
+// Step 1: tool loop — MAF handles function invocation automatically
+AgentResponse agentResponse = await agent.RunAsync(...);
+
+// Step 2: structured output — reformat prose summary into a typed C# object
+ChatResponse<MovieNightFinalResponse> typed = await baseChatClient
+    .GetResponseAsync<MovieNightFinalResponse>(formatMessages, useJsonSchemaResponseFormat: false);
 ```
+
+`useJsonSchemaResponseFormat: false` is used because `qwen2.5:7b` via Ollama cannot
+combine tool calling and schema-constrained output in one pass. The two-step approach
+keeps them separate: the agent loop runs unconstrained, then a second call handles typing.
 
 ## Task 2 Main Files
 
@@ -251,7 +262,8 @@ Expected console logs include:
 | Model            | External LLM                            | Local Ollama model                        |
 | Tool handling    | Manually parsed and executed            | Registered as `AITool`s                   |
 | Main agent logic | Custom C# loop                          | `ChatClientAgent`                         |
-| Final response   | Strongly typed JSON object              | Agent response text                       |
+| System prompt    | Inline in user message                  | Explicit `systemPrompt` variable          |
+| Final response   | Strongly typed JSON object              | Strongly typed via `GetResponseAsync<T>`  |
 | Purpose          | Show how an agent loop works internally | Show framework-based agent implementation |
 
 ---
